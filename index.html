@@ -81,10 +81,10 @@
                     Iniciar Avaliação
                 </button>
                 <p class="mt-4 text-xs text-teal-600 text-center">Atenção: A avaliação só pode ser feita uma única vez com este código.</p>
-                <!-- Dica para acesso ao painel do professor
+                <!-- Dica para acesso ao painel do professor -->
                 <p class="mt-4 text-xs text-red-600 text-center font-semibold">
                     Para o Painel do Professor, adicione <span class="font-mono text-red-800">#professor</span> ao final do URL.
-                </p>-->
+                </p>
             </div>
         </div>
 
@@ -141,6 +141,7 @@
             <h2 class="text-2xl font-bold text-red-700 mb-4">Painel do Professor (Administração de Códigos)</h2>
             <div class="p-4 bg-red-50 rounded-lg">
                 <p class="text-red-700 mb-3">Gerar Códigos de Acesso:</p>
+                <!-- ALTERAÇÃO AQUI: MAX mudou para 1000 -->
                 <input type="number" id="code-count" placeholder="Qtd. de Códigos a Gerar (1-1000)" min="1" max="1000" value="1" class="w-full p-3 mb-4 border border-red-300 rounded-lg">
                 <button onclick="handleGenerateCodes()" class="w-full py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-300 shadow-md">
                     Gerar e Salvar Códigos
@@ -177,6 +178,7 @@
         const CODE_PREFIX = 'FLEX';
         const MAX_RETRIES = 3;
         const INITIAL_DELAY = 1000; // 1 second
+        const MAX_CODE_GENERATION_LIMIT = 1000; // NOVO LIMITE MÁXIMO DEFINIDO AQUI
 
         // Assessment State
         const state = {
@@ -1013,8 +1015,9 @@
             const count = parseInt(countInput.value, 10);
             const codesListElement = document.getElementById('codes-list');
 
-            if (isNaN(count) || count < 1 || count > 10) {
-                return showMessage('error', 'Por favor, insira um número entre 1 e 10.', false, 'teacher-panel');
+            // ALTERAÇÃO AQUI: A validação agora usa a constante MAX_CODE_GENERATION_LIMIT
+            if (isNaN(count) || count < 1 || count > MAX_CODE_GENERATION_LIMIT) {
+                return showMessage('error', `Por favor, insira um número entre 1 e ${MAX_CODE_GENERATION_LIMIT}.`, false, 'teacher-panel');
             }
 
             showMessage('info', `Gerando ${count} códigos de acesso...`, true, 'teacher-panel');
@@ -1138,6 +1141,4 @@
 
     </script>
 </body>
-
 </html>
-
