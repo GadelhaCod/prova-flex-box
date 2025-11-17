@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conexão Firebase e Avaliação Online</title>
+    <title>Conexão Firebase e Persistência Online</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -13,7 +13,8 @@
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start; /* Alinha no topo para melhor visualização */
+            padding-top: 40px;
         }
     </style>
 </head>
@@ -22,24 +23,30 @@
 <div id="app-container" class="w-full max-w-lg p-6 bg-white shadow-2xl rounded-xl border border-gray-200">
     <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Persistência e Avaliação Online</h1>
     
+    <!-- Mensagem de Configuração Faltando (Visível apenas se falhar) -->
+    <div id="config-alert" class="hidden p-4 mb-6 text-sm text-red-800 rounded-lg bg-red-50 border border-red-200" role="alert">
+        <span class="font-bold">ERRO FATAL:</span> A configuração do Firebase não foi encontrada. O aplicativo está no modo **Offline/DEBUG**.
+        Para habilitar o modo **Online**, você deve configurar as variáveis de ambiente (`__firebase_config`) no seu ambiente de hospedagem (Vercel, etc.).
+    </div>
+
     <!-- Status do Sistema -->
-    <div id="status-card" class="mb-6 p-4 rounded-lg shadow-inner">
-        <p class="text-sm font-semibold mb-2">Status do Sistema:</p>
+    <div id="status-card" class="mb-6 p-4 rounded-lg shadow-inner bg-gray-50">
+        <p class="text-sm font-semibold mb-2 text-gray-700">Status da Conexão:</p>
         <p id="auth-status" class="text-gray-600">Autenticação: <span class="font-medium text-yellow-600">Carregando...</span></p>
-        <p id="user-id" class="text-gray-600 break-words">ID do Usuário: <span class="font-medium text-gray-400">N/A</span></p>
         <p id="db-status" class="text-gray-600">Firebase: <span class="font-medium text-yellow-600">Conectando...</span></p>
+        <p id="user-id" class="text-gray-600 break-words">ID do Usuário: <span class="font-medium text-gray-400">N/A</span></p>
     </div>
 
     <!-- Seção de Ações -->
     <div id="actions-section" class="space-y-4">
         <button id="save-code-btn" disabled
                 class="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150 disabled:bg-indigo-400 disabled:cursor-not-allowed">
-            1. Gerar e Salvar Código (Private)
+            1. Gerar e Salvar Código (Private - ONLINE)
         </button>
 
         <button id="submit-evaluation-btn" disabled
                 class="w-full py-3 px-4 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-150 disabled:bg-green-400 disabled:cursor-not-allowed">
-            2. Enviar Avaliação (Online/Public)
+            2. Enviar Avaliação (Public - ONLINE)
         </button>
     </div>
 
@@ -68,13 +75,21 @@
     } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- VARIÁVEIS GLOBAIS FORNECIDAS PELO AMBIENTE ---
-    // Devemos garantir que estas variáveis existem ou usar valores de fallback.
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    
+    // Tenta obter a configuração, usando um objeto vazio como fallback
+    let firebaseConfig = {};
+    try {
+        firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' && __firebase_config ? __firebase_config : '{}');
+    } catch (e) {
+        console.error("Erro ao fazer parse de __firebase_config:", e);
+    }
+    
     const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
     let app, db, auth;
     let userId = null;
+    let isDebugMode = false;
 
     const logMessage = (message, type = 'info') => {
         const log = document.getElementById('message-log');
@@ -106,9 +121,13 @@
      * Inicializa o Firebase e o processo de autenticação.
      */
     async function initFirebase() {
-        if (Object.keys(firebaseConfig).length === 0) {
-            logMessage("ERRO: Configuração do Firebase não encontrada. As operações de banco de dados não funcionarão.", 'error');
+        if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
+            isDebugMode = true;
+            document.getElementById('config-alert').classList.remove('hidden');
+            logMessage("ERRO: Configuração do Firebase não encontrada. Operações de DB desabilitadas.", 'error');
             updateStatus('db-status', 'FALHA (Sem Config)', 'text-red-600');
+            updateStatus('auth-status', 'DEBUG/Offline', 'text-red-600');
+            setButtonState(false);
             return;
         }
 
@@ -132,21 +151,20 @@
                 signedIn = true;
             } else {
                 // Caso contrário, autentica anonimamente
-                logMessage("Token Personalizado não encontrado. Autenticando anonimamente...", 'warning');
+                logMessage("Token não encontrado. Autenticando anonimamente...", 'warning');
                 await signInAnonymously(auth);
                 signedIn = true;
             }
 
             if(signedIn) {
                 // O listener onAuthStateChanged garante que a UI é atualizada
-                // após a conclusão da autenticação (signInWithCustomToken/signInAnonymously).
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         userId = user.uid;
                         updateStatus('auth-status', 'Online e Autenticado', 'text-green-600');
                         updateStatus('user-id', userId, 'text-gray-700');
                         setButtonState(true); // Habilita botões após autenticação
-                        logMessage(`Autenticação bem-sucedida. User ID: ${userId}.`, 'success');
+                        logMessage(`SUCESSO: Autenticação concluída. User ID: ${userId}.`, 'success');
                     } else {
                         updateStatus('auth-status', 'Desconectado', 'text-red-600');
                         updateStatus('user-id', 'N/A', 'text-gray-400');
@@ -158,7 +176,7 @@
 
         } catch (error) {
             console.error("Erro na inicialização/autenticação do Firebase:", error);
-            logMessage(`ERRO FATAL: ${error.message}`, 'error');
+            logMessage(`ERRO na Conexão: ${error.message}`, 'error');
             updateStatus('auth-status', 'ERRO', 'text-red-600');
         }
     }
@@ -168,28 +186,32 @@
      * Esta ação simula a resolução do problema "NÃO foram salvos no Firebase".
      */
     async function saveCodeToFirebase() {
+        if (isDebugMode) {
+            logMessage("AVISO: Operação bloqueada. Configuração do Firebase faltando.", 'warning');
+            return;
+        }
         if (!userId) {
-            logMessage("ERRO: Usuário não autenticado. Não é possível salvar o código.", 'error');
+            logMessage("ERRO: Usuário não autenticado. Tente recarregar a página.", 'error');
             return;
         }
 
         const codeData = {
             timestamp: new Date().toISOString(),
-            content_type: 'html',
-            simulated_code: `console.log('Código gerado #${Date.now()}')`,
-            version: '1.0'
+            generated_code: `CODE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            user_ip: 'simulated_ip'
         };
 
-        // Caminho da coleção privada: /artifacts/{appId}/users/{userId}/generated_codes
+        // Caminho da coleção privada (ideal para códigos gerados por um professor):
+        // /artifacts/{appId}/users/{userId}/generated_codes
         const privateCollectionPath = `artifacts/${appId}/users/${userId}/generated_codes`;
 
         try {
-            logMessage("Tentando salvar código gerado no caminho privado...");
+            logMessage("Tentando salvar código gerado (Privado)...");
             const docRef = await addDoc(collection(db, privateCollectionPath), codeData);
-            logMessage(`SUCESSO: Código salvo no Firebase (Privado). Document ID: ${docRef.id}`, 'success');
+            logMessage(`SUCESSO: Código salvo ONLINE. Document ID: ${docRef.id}`, 'success');
         } catch (error) {
             console.error("Erro ao salvar código no Firestore:", error);
-            logMessage(`FALHA ao salvar código. Verifique as regras de segurança: ${error.message}`, 'error');
+            logMessage(`FALHA ao salvar. Verifique as Regras de Segurança: ${error.message}`, 'error');
         }
     }
 
@@ -198,28 +220,33 @@
      * Esta ação simula o envio "Online" da avaliação.
      */
     async function submitEvaluation() {
+        if (isDebugMode) {
+            logMessage("AVISO: Operação bloqueada. Configuração do Firebase faltando.", 'warning');
+            return;
+        }
         if (!userId) {
-            logMessage("ERRO: Usuário não autenticado. Não é possível enviar a avaliação.", 'error');
+            logMessage("ERRO: Usuário não autenticado. Tente recarregar a página.", 'error');
             return;
         }
 
         const evaluationData = {
             user_id: userId,
-            rating: Math.floor(Math.random() * 5) + 1, // Avaliação simulada de 1 a 5
-            feedback: `Ótimo app! Enviado online às ${new Date().toLocaleTimeString('pt-BR')}.`,
+            score: Math.floor(Math.random() * 100) + 1, // Pontuação simulada
+            status: 'CONCLUIDO',
             timestamp: new Date().toISOString()
         };
 
-        // Caminho da coleção pública: /artifacts/{appId}/public/data/evaluations
+        // Caminho da coleção pública (ideal para submissões de alunos):
+        // /artifacts/{appId}/public/data/evaluations
         const publicCollectionPath = `artifacts/${appId}/public/data/evaluations`;
 
         try {
-            logMessage("Tentando enviar avaliação para o caminho público...");
+            logMessage("Tentando enviar avaliação (Público)...");
             const docRef = await addDoc(collection(db, publicCollectionPath), evaluationData);
             logMessage(`SUCESSO: Avaliação enviada ONLINE! Document ID: ${docRef.id}`, 'success');
         } catch (error) {
             console.error("Erro ao enviar avaliação para o Firestore:", error);
-            logMessage(`FALHA ao enviar avaliação. Verifique as regras de segurança: ${error.message}`, 'error');
+            logMessage(`FALHA ao enviar. Verifique as Regras de Segurança: ${error.message}`, 'error');
         }
     }
 
